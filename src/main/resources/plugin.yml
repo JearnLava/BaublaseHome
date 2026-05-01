@@ -1,0 +1,11 @@
+name: BaublaseHome
+version: '${version}'
+
+main: de.learnjava.baublaseHome.BaublaseHome
+api-version: '1.21'
+
+authors: [ LearnJava ]
+commands:
+  sethome:
+  delhome:
+  home:
