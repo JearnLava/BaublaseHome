@@ -52,8 +52,7 @@ public final class BaublaseHome extends JavaPlugin {
 
         getServer().getPluginManager().registerEvents(new ConnectionListener(), this);
 
-        HomeCMD homeCMD = new HomeCMD();
-        getCommand("home").setExecutor(homeCMD);
+        getCommand("home").setExecutor(new HomeCMD());
     }
 
     @Override
