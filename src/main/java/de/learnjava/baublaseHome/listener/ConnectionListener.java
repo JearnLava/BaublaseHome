@@ -12,7 +12,6 @@ public class ConnectionListener implements Listener {
     @EventHandler
     public void onJoin(PlayerJoinEvent event) {
         BaublaseHome plugin = BaublaseHome.getInstance();
-        if (!plugin.getSavingMethod().equalsIgnoreCase("mysql")) return;
 
         var uuid = event.getPlayer().getUniqueId();
 

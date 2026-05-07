@@ -1,84 +1,67 @@
 package de.learnjava.baublaseHome.utils;
 
 import de.learnjava.baublaseHome.BaublaseHome;
-import de.learnjava.baublaseHome.database.repos.HomeObject;
+import de.learnjava.baublaseHome.database.dto.HomeObject;
 import net.kyori.adventure.text.minimessage.MiniMessage;
-import org.bukkit.configuration.file.FileConfiguration;
-import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.Bukkit;
+import org.bukkit.Location;
+import org.bukkit.World;
 import org.bukkit.entity.Player;
 
-import java.io.File;
-import java.io.IOException;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 
 public class HomeUtils {
 
-    private final MiniMessage miniMessage = MiniMessage.miniMessage();
+    public static final String PREFIX =
+            " <bold><gradient:#FA56AF:#4498DB>Baublase</gradient></bold> <dark_gray>| </dark_gray>";
 
-    public void saveHome(Player player, String name, String locationString) {
-        BaublaseHome plugin = BaublaseHome.getInstance();
-        FileConfiguration config = plugin.getConfig();
+    private static final String VALID_NAME_REGEX = "[a-zA-Z0-9-]+";
 
-        switch (plugin.getSavingMethod()) {
+    private static final MiniMessage MM = MiniMessage.miniMessage();
 
-            case "mysql":
-                if (plugin.getDatabaseManager() != null && plugin.getDatabaseManager().isConnected()) {
-                    HomeObject home = new HomeObject(
-                            player.getUniqueId().toString(),
-                            name,
-                            locationString
-                    );
-                    plugin.getHomeRepository().insertAsync(home);
-                    send(player, config.getString("messages.created_succesfully"), name);
-                } else {
-                    send(player, "<red>Database nicht verbunden!", name);
-                }
-                break;
+    public enum NameResult {
+        OK,
+        TOO_LONG,
+        INVALID_CHARS
+    }
 
-            case "config":
-                saveToFile(player, name, locationString);
-                send(player, config.getString("messages.created_succesfully"), name);
-                break;
+    public NameResult validateName(String name) {
+        if (name.length() > 10) return NameResult.TOO_LONG;
+        if (!name.matches(VALID_NAME_REGEX)) return NameResult.INVALID_CHARS;
+        return NameResult.OK;
+    }
 
-            case "local":
-                plugin.getPlayerHomes()
-                        .computeIfAbsent(player.getUniqueId(), k -> new HashMap<>())
-                        .put(name, new HomeObject(
-                                player.getUniqueId().toString(),
-                                name,
-                                locationString
-                        ));
-                send(player, config.getString("messages.created_succesfully"), name);
-                break;
+    public void send(Player player, String message) {
+        if (message == null || message.isEmpty()) return;
+        player.sendMessage(MM.deserialize(PREFIX + message));
+    }
+
+    public void send(Player player, String message, Map<String, String> placeholders) {
+        if (message == null || message.isEmpty()) return;
+
+        for (Map.Entry<String, String> entry : placeholders.entrySet()) {
+            message = message.replace(entry.getKey(), entry.getValue());
         }
+
+        send(player, message);
     }
 
     public int getCurrentHomes(Player player) {
         BaublaseHome plugin = BaublaseHome.getInstance();
 
-        switch (plugin.getSavingMethod()) {
-            case "config":
-                File file = new File(plugin.getDataFolder(), "homes/" + player.getUniqueId() + ".yml");
-                if (!file.exists()) return 0;
-                YamlConfiguration yaml = YamlConfiguration.loadConfiguration(file);
-                if (!yaml.contains("homes")) return 0;
-                return yaml.getConfigurationSection("homes").getKeys(false).size();
-            case "local":
-            case "mysql":
-                Map<String, HomeObject> homes = plugin.getPlayerHomes().get(player.getUniqueId());
-                return homes != null ? homes.size() : 0;
-        }
+        Map<String, HomeObject> homes =
+                plugin.getPlayerHomes().get(player.getUniqueId());
 
-        return 0;
+        return homes != null ? homes.size() : 0;
     }
 
     public int getMaxHomes(Player player) {
         BaublaseHome plugin = BaublaseHome.getInstance();
+
         String basePerm = plugin.getConfig().getString("permissions.create");
+        if (basePerm == null) return 0;
 
         int max = 0;
-        if (basePerm == null) return 0;
 
         for (int i = 1; i <= 100; i++) {
             if (player.hasPermission(basePerm + "." + i)) {
@@ -89,37 +72,128 @@ public class HomeUtils {
         return max;
     }
 
-    private void saveToFile(Player player, String name, String locationString) {
+    public void saveHome(Player player, String name, Location location) {
+        String locationString = String.format(
+                Locale.US,
+                "%s:%.6f:%.6f:%.6f:%.4f:%.4f",
+                location.getWorld().getName(),
+                location.getX(),
+                location.getY(),
+                location.getZ(),
+                location.getYaw(),
+                location.getPitch()
+        );
+
+        saveHome(player, name, locationString);
+    }
+
+    public void saveHome(Player player, String name, String locationString) {
         BaublaseHome plugin = BaublaseHome.getInstance();
 
-        File folder = new File(plugin.getDataFolder(), "homes");
-        if (!folder.exists()) folder.mkdirs();
+        if (plugin.getDatabaseManager() == null
+                || !plugin.getDatabaseManager().isConnected()) {
 
-        File file = new File(folder, player.getUniqueId().toString() + ".yml");
-        YamlConfiguration yaml = YamlConfiguration.loadConfiguration(file);
+            send(player,
+                    "<gray>Es ist etwas schiefgelaufen. Bitte versuche es erneut!</gray>");
+            return;
+        }
 
-        yaml.set("homes." + name + ".location", locationString);
+        HomeObject home = new HomeObject(
+                player.getUniqueId().toString(),
+                name,
+                locationString
+        );
 
+        plugin.getHomeRepository().insertAsync(home);
+
+        plugin.getPlayerHomes()
+                .computeIfAbsent(player.getUniqueId(),
+                        k -> new HashMap<>())
+                .put(name, home);
+
+        send(
+                player,
+                plugin.getConfig().getString("messages.home_created", ""),
+                placeholders(player, name, getMaxHomes(player))
+        );
+    }
+
+    public Map<String, HomeObject> getAllHomes(Player player) {
+        BaublaseHome plugin = BaublaseHome.getInstance();
+
+
+        return plugin.getPlayerHomes()
+                .getOrDefault(player.getUniqueId(), new HashMap<>());
+    }
+
+    public Optional<HomeObject> getHome(Player player, String name) {
+        BaublaseHome plugin = BaublaseHome.getInstance();
+
+        Map<String, HomeObject> homes =
+                plugin.getPlayerHomes().get(player.getUniqueId());
+
+        if (homes == null) {
+            return Optional.empty();
+        }
+
+        return Optional.ofNullable(homes.get(name));
+    }
+
+    public boolean deleteHome(Player player, String name) {
+        BaublaseHome plugin = BaublaseHome.getInstance();
+
+        Map<String, HomeObject> homes =
+                plugin.getPlayerHomes().get(player.getUniqueId());
+
+        if (homes == null || !homes.containsKey(name)) {
+            return false;
+        }
+
+        homes.remove(name);
+
+        plugin.getHomeRepository()
+                .deleteHomeAsync(player.getUniqueId(), name);
+
+        return true;
+    }
+
+    public Location deserializeLocation(String s) {
         try {
-            yaml.save(file);
-        } catch (IOException e) {
-            plugin.getLogger().severe("Fehler beim Speichern!");
-            e.printStackTrace();
+            s = s.replace(",", ".");
+
+            String[] split = s.split(":");
+
+            World world = Bukkit.getWorld(split[0]);
+
+            if (world == null) return null;
+
+            return new Location(
+                    world,
+                    Double.parseDouble(split[1]),
+                    Double.parseDouble(split[2]),
+                    Double.parseDouble(split[3]),
+                    Float.parseFloat(split[4]),
+                    Float.parseFloat(split[5])
+            );
+
+        } catch (Exception e) {
+            return null;
         }
     }
 
-    private void send(Player player, String message, String homeName) {
-        if (message == null) return;
-        message = replaceVars(message, player, homeName, getMaxHomes(player));
-        player.sendMessage(miniMessage.deserialize(message));
-    }
+    private Map<String, String> placeholders(
+            Player player,
+            String homeName,
+            int maxHomes
+    ) {
+        Map<String, String> map = new LinkedHashMap<>();
 
-    public String replaceVars(String text, Player player, String homeName, int maxHomes) {
-        if (text == null) return "";
-        return text
-                .replace("%player%", player.getName())
-                .replace("%home%", homeName)
-                .replace("%HOME%", homeName)
-                .replace("%MAX_HOMES%", String.valueOf(maxHomes));
+        map.put("%player%", player.getName());
+        map.put("%home%", homeName);
+        map.put("%HOME%", homeName);
+        map.put("%MAX_HOMES%", String.valueOf(maxHomes));
+        map.put("%CURRENT_HOMES%", String.valueOf(getCurrentHomes(player)));
+
+        return map;
     }
 }

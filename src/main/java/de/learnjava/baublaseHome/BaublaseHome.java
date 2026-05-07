@@ -1,10 +1,9 @@
 package de.learnjava.baublaseHome;
 
-import de.learnjava.baublaseHome.commands.DelHomeCMD;
 import de.learnjava.baublaseHome.commands.HomeCMD;
-import de.learnjava.baublaseHome.commands.SetHomeCMD;
 import de.learnjava.baublaseHome.database.DatabaseManager;
-import de.learnjava.baublaseHome.database.repos.HomeObject;
+import de.learnjava.baublaseHome.database.dto.HomeObject;
+import de.learnjava.baublaseHome.database.repos.HomeAccessRepository;
 import de.learnjava.baublaseHome.database.repos.HomeRepository;
 import de.learnjava.baublaseHome.listener.ConnectionListener;
 import lombok.Getter;
@@ -26,37 +25,35 @@ public final class BaublaseHome extends JavaPlugin {
     private HomeRepository homeRepository;
 
     @Getter
-    private final Map<UUID, Map<String, HomeObject>> playerHomes = new HashMap<>();
+    private HomeAccessRepository homeAccessRepository;
 
     @Getter
-    private String savingMethod;
+    private final Map<UUID, Map<String, HomeObject>> playerHomes = new HashMap<>();
 
     @Override
     public void onEnable() {
         instance = this;
         saveDefaultConfig();
 
-        savingMethod = getConfig().getString("datasaving", "config").toLowerCase();
+        String host     = getConfig().getString("database.host");
+        int    port     = getConfig().getInt("database.port");
+        String database = getConfig().getString("database.database");
+        String user     = getConfig().getString("database.user");
+        String password = getConfig().getString("database.password");
 
-        if (savingMethod.equals("mysql")) {
-            String host = getConfig().getString("database.host");
-            int port = getConfig().getInt("database.port");
-            String database = getConfig().getString("database.database");
-            String user = getConfig().getString("database.user");
-            String password = getConfig().getString("database.password");
+        databaseManager = new DatabaseManager(getLogger(), host, port, database, user, password);
+        databaseManager.connect();
 
-            databaseManager = new DatabaseManager(getLogger(), host, port, database, user, password);
-            databaseManager.connect();
+        homeRepository = new HomeRepository(databaseManager, this);
+        homeRepository.createTable();
 
-            homeRepository = new HomeRepository(databaseManager, this);
-            homeRepository.createTable();
-        }
+        homeAccessRepository = new HomeAccessRepository(databaseManager);
+        homeAccessRepository.createTable();
 
         getServer().getPluginManager().registerEvents(new ConnectionListener(), this);
 
-        getCommand("home").setExecutor(new HomeCMD());
-        getCommand("sethome").setExecutor(new SetHomeCMD());
-        getCommand("delhome").setExecutor(new DelHomeCMD());
+        HomeCMD homeCMD = new HomeCMD();
+        getCommand("home").setExecutor(homeCMD);
     }
 
     @Override
@@ -64,5 +61,9 @@ public final class BaublaseHome extends JavaPlugin {
         if (databaseManager != null && databaseManager.isConnected()) {
             databaseManager.disconnect();
         }
+    }
+
+    public String getSavingMethod() {
+        return getConfig().getString("storage.method", "config");
     }
 }

@@ -1,25 +1,10 @@
-datasaving: "config"
-# mysql = using mysql to save homes
-# config = using configs to save homes
-# local = only saving it locally per server session
-
 database:
   host: SOMEHOST
   port: 3306
   user: SOMEUSER
   password: SOMEPASSWORD
   database: baublase
-  table: player_homes
 
 permissions:
-  create: "blaublase.createhome" # permission to use create command, (blaublase.createhome.<INT> in permission system to allow up to * homes)
-  delete: "blaublase.deletehome" # permission to use delete command
-
-messages:
-  created_succesfully: "<gray>Du hast erfolgreich dein Home <green>%HOME% <gray>erstellt."
-  deleted_succesfully: "<red>Du hast erfolgreich dein Home <dark_red>%HOME% <red>erstellt."
-  max_homes: "<gray>Du hast die maximalen Homes erreicht. <dark_gray>(<gray>%MAX_HOMES%<dark_gray>)"
-  teleported: "<gray>Du wurdest zu deinem Home <green>%HOME% <gray>teleportiert."
-  no_perms: "<red>Du hast keine Rechte!"
-  put_name: "<gray>Du musst ein Namen eingeben!"
-  no_homes: "<gray>Keine Homes gefunden!"
+  delete: "baublase.home.delete"
+  create: "baublase.home.create"

@@ -4,6 +4,7 @@ import de.learnjava.baublaseHome.BaublaseHome;
 import de.learnjava.baublaseHome.database.BaseRepository;
 import de.learnjava.baublaseHome.database.DatabaseManager;
 import de.learnjava.baublaseHome.database.RowMapper;
+import de.learnjava.baublaseHome.database.dto.HomeObject;
 import org.bukkit.Bukkit;
 
 import java.util.*;
@@ -13,148 +14,149 @@ public class HomeRepository extends BaseRepository<HomeObject> {
 
     private static final RowMapper<HomeObject> MAPPER = rs -> new HomeObject(
             rs.getString("uuid"),
-            rs.getString("name"),
-            rs.getString("locationFromString")
+            rs.getString("home_name"),
+            rs.getString("world"),
+            rs.getDouble("x"),
+            rs.getDouble("y"),
+            rs.getDouble("z"),
+            rs.getFloat("yaw"),
+            rs.getFloat("pitch")
     );
-
-    private final BaublaseHome plugin;
-    private final String tableName;
 
     public HomeRepository(DatabaseManager db, BaublaseHome plugin) {
         super(db);
-        this.plugin = plugin;
-        this.tableName = plugin.getConfig().getString("database.table", "player_homes");
     }
 
     @Override
     public void createTable() {
         db.execute(
-                "CREATE TABLE IF NOT EXISTS " + tableName + " (" +
-                        "uuid CHAR(36) NOT NULL," +
-                        "name VARCHAR(255) NOT NULL," +
-                        "locationFromString VARCHAR(255) NOT NULL," +
-                        "PRIMARY KEY (uuid, name)" +
+                "CREATE TABLE IF NOT EXISTS player_homes (" +
+                        "  uuid      VARCHAR(36)  NOT NULL," +
+                        "  home_name VARCHAR(16)  NOT NULL," +
+                        "  world     VARCHAR(255) NOT NULL," +
+                        "  x         DOUBLE       NOT NULL," +
+                        "  y         DOUBLE       NOT NULL," +
+                        "  z         DOUBLE       NOT NULL," +
+                        "  yaw       FLOAT        NOT NULL," +
+                        "  pitch     FLOAT        NOT NULL," +
+                        "  PRIMARY KEY (uuid, home_name)" +
                         ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;"
         );
     }
 
     public void insert(HomeObject entry) {
-
         insert(
-                "INSERT INTO " + tableName + " (uuid, name, locationFromString) VALUES (?, ?, ?) " +
-                        "ON DUPLICATE KEY UPDATE locationFromString = VALUES(locationFromString)",
+                "INSERT INTO player_homes (uuid, home_name, world, x, y, z, yaw, pitch) " +
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?) " +
+                        "ON DUPLICATE KEY UPDATE world = VALUES(world), x = VALUES(x), " +
+                        "y = VALUES(y), z = VALUES(z), yaw = VALUES(yaw), pitch = VALUES(pitch)",
                 entry.getUuid(),
-                entry.getName(),
-                entry.getLocationFromString()
+                entry.getHomeName(),
+                entry.getWorld(),
+                entry.getX(),
+                entry.getY(),
+                entry.getZ(),
+                entry.getYaw(),
+                entry.getPitch()
         );
 
         UUID uuid = UUID.fromString(entry.getUuid());
-
-        plugin.getPlayerHomes()
+        BaublaseHome.getInstance().getPlayerHomes()
                 .computeIfAbsent(uuid, k -> new HashMap<>())
-                .put(entry.getName(), entry);
+                .put(entry.getHomeName(), entry);
+    }
+
+    public void deleteHome(UUID uuid, String name) {
+        update(
+                "DELETE FROM player_homes WHERE uuid = ? AND home_name = ?",
+                uuid.toString(),
+                name
+        );
+
+        Map<String, HomeObject> homes = BaublaseHome.getInstance().getPlayerHomes().get(uuid);
+        if (homes != null) homes.remove(name);
+    }
+
+    public void deleteAllHomes(UUID uuid) {
+        update("DELETE FROM player_homes WHERE uuid = ?", uuid.toString());
+        BaublaseHome.getInstance().getPlayerHomes().remove(uuid);
     }
 
     public Optional<HomeObject> findHome(UUID uuid, String name) {
-
-        if (!plugin.getPlayerHomes().containsKey(uuid)) {
-            return Optional.empty();
+        Map<String, HomeObject> cached = BaublaseHome.getInstance().getPlayerHomes().get(uuid);
+        if (cached != null) {
+            return Optional.ofNullable(cached.get(name));
         }
 
-        return Optional.ofNullable(
-                plugin.getPlayerHomes().get(uuid).get(name)
+        return query(
+                "SELECT * FROM player_homes WHERE uuid = ? AND home_name = ?",
+                MAPPER,
+                uuid.toString(),
+                name
         );
     }
 
     public Map<String, HomeObject> findAllHomes(UUID uuid) {
-
         List<HomeObject> list = queryList(
-                "SELECT * FROM " + tableName + " WHERE uuid = ?",
+                "SELECT * FROM player_homes WHERE uuid = ?",
                 MAPPER,
                 uuid.toString()
         );
 
         Map<String, HomeObject> map = new HashMap<>();
-
         for (HomeObject home : list) {
-            map.put(home.getName(), home);
+            map.put(home.getHomeName(), home);
         }
 
-        plugin.getPlayerHomes().put(uuid, map);
-
+        BaublaseHome.getInstance().getPlayerHomes().put(uuid, map);
         return map;
     }
 
     public void insertAsync(HomeObject entry) {
-
-        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
-
-            insert(
-                    "INSERT INTO " + tableName + " (uuid, name, locationFromString) VALUES (?, ?, ?) " +
-                            "ON DUPLICATE KEY UPDATE locationFromString = VALUES(locationFromString)",
-                    entry.getUuid(),
-                    entry.getName(),
-                    entry.getLocationFromString()
-            );
-
-        });
-
         UUID uuid = UUID.fromString(entry.getUuid());
-
-        plugin.getPlayerHomes()
+        BaublaseHome.getInstance().getPlayerHomes()
                 .computeIfAbsent(uuid, k -> new HashMap<>())
-                .put(entry.getName(), entry);
+                .put(entry.getHomeName(), entry);
+
+        Bukkit.getScheduler().runTaskAsynchronously(BaublaseHome.getInstance(), () ->
+                insert(
+                        "INSERT INTO player_homes (uuid, home_name, world, x, y, z, yaw, pitch) " +
+                                "VALUES (?, ?, ?, ?, ?, ?, ?, ?) " +
+                                "ON DUPLICATE KEY UPDATE world = VALUES(world), x = VALUES(x), " +
+                                "y = VALUES(y), z = VALUES(z), yaw = VALUES(yaw), pitch = VALUES(pitch)",
+                        entry.getUuid(),
+                        entry.getHomeName(),
+                        entry.getWorld(),
+                        entry.getX(),
+                        entry.getY(),
+                        entry.getZ(),
+                        entry.getYaw(),
+                        entry.getPitch()
+                )
+        );
     }
 
     public void deleteHomeAsync(UUID uuid, String name) {
+        Map<String, HomeObject> homes = BaublaseHome.getInstance().getPlayerHomes().get(uuid);
+        if (homes != null) homes.remove(name);
 
-        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
-            update(
-                    "DELETE FROM " + tableName + " WHERE uuid = ? AND name = ?",
-                    uuid.toString(),
-                    name
-            );
-        });
-
-        if (plugin.getPlayerHomes().containsKey(uuid)) {
-            plugin.getPlayerHomes().get(uuid).remove(name);
-        }
+        Bukkit.getScheduler().runTaskAsynchronously(BaublaseHome.getInstance(), () ->
+                update(
+                        "DELETE FROM player_homes WHERE uuid = ? AND home_name = ?",
+                        uuid.toString(),
+                        name
+                )
+        );
     }
 
     public void countHomesAsync(UUID uuid, Consumer<Integer> callback) {
-
-        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
-
+        Bukkit.getScheduler().runTaskAsynchronously(BaublaseHome.getInstance(), () -> {
             int count = queryList(
-                    "SELECT * FROM " + tableName + " WHERE uuid = ?",
+                    "SELECT * FROM player_homes WHERE uuid = ?",
                     MAPPER,
                     uuid.toString()
             ).size();
-
-            Bukkit.getScheduler().runTask(plugin, () -> callback.accept(count));
+            Bukkit.getScheduler().runTask(BaublaseHome.getInstance(), () -> callback.accept(count));
         });
-    }
-
-    public void deleteHome(UUID uuid, String name) {
-
-        update(
-                "DELETE FROM " + tableName + " WHERE uuid = ? AND name = ?",
-                uuid.toString(),
-                name
-        );
-
-        if (plugin.getPlayerHomes().containsKey(uuid)) {
-            plugin.getPlayerHomes().get(uuid).remove(name);
-        }
-    }
-
-    public void deleteAllHomes(UUID uuid) {
-
-        update(
-                "DELETE FROM " + tableName + " WHERE uuid = ?",
-                uuid.toString()
-        );
-
-        plugin.getPlayerHomes().remove(uuid);
     }
 }
